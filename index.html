@@ -2,8 +2,11 @@
   <video id="screenPreview" autoplay playsinline></video>
   <button id="startBtn">Share Screen</button>
   <button id="stopBtn">Stop Recording</button>
+  <video id="cameraPreview" autoplay playsinline></video>
+  <button id="cameraBtn">Open Phone Camera</button>
   <video hidden id="recordingPreview" controls></video>
   <button hidden id="downloadBtn">Download Recording</button>
+
   <script>
     const button = document.getElementById("startBtn");
     const preview = document.getElementById("screenPreview");
@@ -92,6 +95,7 @@
 
         preview.srcObject = null;
         stream = null;
+        alert("Could not start screen recording: " + error.message);
         console.error(error);
       }
     });
@@ -110,6 +114,24 @@
       if (recorder) {
         state = "finalizing";
         recorder.stop();
+      }
+    });
+
+    // ------------------------- Camera Preview -------------------------
+    const cameraPreview = document.getElementById("cameraPreview");
+    const cameraBtn = document.getElementById("cameraBtn");
+
+    cameraBtn.addEventListener("click", async () => {
+      try {
+        const cameraStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "user" },
+          audio: false,
+        });
+
+        cameraPreview.srcObject = cameraStream;
+      } catch (error) {
+        console.error(error);
+        alert("Could not access the camera");
       }
     });
   </script>
