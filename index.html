@@ -19,8 +19,9 @@
     let pendingCandidates = [];
 
     // ------------------------- WebSocket Signaling -------------------------
-    const signalingSocket = new WebSocket("ws://localhost:8080");
-
+    const signalingSocket = new WebSocket(
+      "wss://cam-share-signaling-server.onrender.com",
+    );
     signalingSocket.addEventListener("open", () => {
       console.log("Connected to signaling server");
     });
