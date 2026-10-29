@@ -1,0 +1,17 @@
+
+{
+  "name": "signaling-server",
+  "version": "1.0.0",
+  "description": "CamShare signaling server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "ws": "^8.22.0"
+  }
+}

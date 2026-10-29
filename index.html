@@ -1,13 +1,107 @@
 <body>
-  <video id="screenPreview" autoplay playsinline></video>
-  <button id="startBtn">Share Screen</button>
-  <button id="stopBtn">Stop Recording</button>
-  <video id="cameraPreview" autoplay playsinline></video>
-  <button id="cameraBtn">Open Phone Camera</button>
+  <section id="roleSelection">
+    <h2>CamShare</h2>
+    <button id="phoneRoleBtn">Use as Phone Camera</button>
+    <button id="laptopRoleBtn">Use as Laptop</button>
+  </section>
+
+  <video hidden id="screenPreview" autoplay playsinline></video>
+  <video id="remoteCameraPreview" autoplay playsinline></video>
+  <button hidden id="startBtn">Share Screen</button>
+  <button hidden id="stopBtn">Stop Recording</button>
+  <video hidden id="cameraPreview" autoplay playsinline></video>
+  <button hidden id="cameraBtn">Open Phone Camera</button>
   <video hidden id="recordingPreview" controls></video>
   <button hidden id="downloadBtn">Download Recording</button>
 
   <script>
+    let deviceRole = null;
+    let pendingCandidates = [];
+
+    // ------------------------- WebSocket Signaling -------------------------
+    const signalingSocket = new WebSocket("ws://localhost:8080");
+
+    signalingSocket.addEventListener("open", () => {
+      console.log("Connected to signaling server");
+    });
+
+    signalingSocket.addEventListener("message", (event) => {
+      const message = JSON.parse(event.data);
+
+      if (message.type === "joined") {
+        console.log("Successfully joined room:", message.roomId);
+      } else if (message.type === "peers") {
+        console.log("Devices already in room:", message.count);
+
+        if (deviceRole === "laptop" && message.count > 0 && !peerConnection) {
+          createOffer().catch((error) => {
+            console.error("Could not create offer:", error);
+          });
+        }
+      } else if (message.type === "peer-joined") {
+        console.log("Another device joined!");
+
+        if (deviceRole === "laptop" && !peerConnection) {
+          createOffer().catch((error) => {
+            console.error("Could not create offer:", error);
+          });
+        }
+      } else if (message.type === "error") {
+        console.error("Signaling error:", message.message);
+      } else if (message.type === "offer" && deviceRole === "phone") {
+        handleOffer(message.offer).catch(console.error);
+      } else if (message.type === "answer" && deviceRole === "laptop") {
+        handleAnswer(message.answer).catch(console.error);
+      } else if (message.type === "ice-candidate") {
+        handleIceCandidate(message.candidate).catch(console.error);
+      } else {
+        console.log("Signaling message:", message);
+      }
+    });
+
+    signalingSocket.addEventListener("error", (error) => {
+      console.error("WebSocket connection error:", error);
+    });
+
+    signalingSocket.addEventListener("close", () => {
+      console.log("Disconnected from signaling server");
+    });
+
+    // ------------------------- WebRTC Peer Connection -------------------------
+    const remoteCameraPreview = document.getElementById("remoteCameraPreview");
+
+    let peerConnection = null;
+    let cameraStream = null;
+
+    function createPeerConnection() {
+      peerConnection = new RTCPeerConnection({
+        iceServers: [
+          {
+            urls: "stun:stun.l.google.com:19302",
+          },
+        ],
+      });
+
+      peerConnection.addEventListener("track", (event) => {
+        remoteCameraPreview.srcObject = event.streams[0];
+      });
+
+      peerConnection.addEventListener("icecandidate", (event) => {
+        if (event.candidate) {
+          sendSignal({
+            type: "ice-candidate",
+            candidate: event.candidate,
+          });
+        }
+      });
+
+      peerConnection.addEventListener("connectionstatechange", () => {
+        console.log("WebRTC connection state:", peerConnection.connectionState);
+      });
+    }
+
+    // ------------------------- Screen Recording -------------------------
+
     const button = document.getElementById("startBtn");
     const preview = document.getElementById("screenPreview");
     const stopButton = document.getElementById("stopBtn");
@@ -134,5 +228,142 @@
         alert("Could not access the camera");
       }
     });
+
+    const roleSelection = document.getElementById("roleSelection");
+    const phoneRoleBtn = document.getElementById("phoneRoleBtn");
+    const laptopRoleBtn = document.getElementById("laptopRoleBtn");
+
+    phoneRoleBtn.addEventListener("click", () => {
+      deviceRole = "phone";
+
+      roleSelection.hidden = true;
+      cameraBtn.hidden = false;
+      cameraPreview.hidden = false;
+
+      joinRoom();
+    });
+
+    laptopRoleBtn.addEventListener("click", () => {
+      deviceRole = "laptop";
+
+      roleSelection.hidden = true;
+
+      preview.hidden = false;
+      button.hidden = false;
+      stopButton.hidden = false;
+
+      cameraBtn.hidden = true;
+      cameraPreview.hidden = true;
+
+      joinRoom();
+    });
+
+    // ------------------------- Functions -------------------------
+
+    function joinRoom() {
+      if (signalingSocket.readyState !== WebSocket.OPEN) {
+        console.error("Signaling server is not connected");
+        return;
+      }
+
+      signalingSocket.send(
+        JSON.stringify({
+          type: "join",
+          roomId: "camshare-123",
+          role: deviceRole,
+        }),
+      );
+
+      console.log(`Joining room as ${deviceRole}`);
+    }
+
+    function sendSignal(message) {
+      if (signalingSocket.readyState !== WebSocket.OPEN) {
+        console.error("Signaling server is not connected");
+        return;
+      }
+
+      signalingSocket.send(
+        JSON.stringify({
+          ...message,
+          role: deviceRole,
+        }),
+      );
+    }
+
+    async function createOffer() {
+      createPeerConnection();
+
+      peerConnection.addTransceiver("video", {
+        direction: "recvonly",
+      });
+
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+
+      sendSignal({
+        type: "offer",
+        offer: peerConnection.localDescription,
+      });
+
+      console.log("Offer sent");
+    }
+
+    async function handleOffer(offer) {
+      createPeerConnection();
+
+      await peerConnection.setRemoteDescription(offer);
+      await flushPendingCandidates();
+
+      cameraStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user" },
+        audio: false,
+      });
+
+      cameraPreview.srcObject = cameraStream;
+
+      cameraStream.getTracks().forEach((track) => {
+        peerConnection.addTrack(track, cameraStream);
+      });
+
+      const answer = await peerConnection.createAnswer();
+      await peerConnection.setLocalDescription(answer);
+
+      sendSignal({
+        type: "answer",
+        answer: peerConnection.localDescription,
+      });
+
+      console.log("Answer sent with phone camera");
+    }
+
+    async function handleAnswer(answer) {
+      await peerConnection.setRemoteDescription(answer);
+      await flushPendingCandidates();
+
+      console.log("Answer received and applied");
+    }
+
+    async function handleIceCandidate(candidate) {
+      if (!peerConnection || !peerConnection.remoteDescription) {
+        pendingCandidates.push(candidate);
+        return;
+      }
+
+      await peerConnection.addIceCandidate(candidate);
+    }
+
+    async function flushPendingCandidates() {
+      if (!peerConnection || !peerConnection.remoteDescription) {
+        return;
+      }
+
+      const candidates = pendingCandidates;
+      pendingCandidates = [];
+
+      for (const candidate of candidates) {
+        await peerConnection.addIceCandidate(candidate);
+      }
+    }
   </script>
 </body>
