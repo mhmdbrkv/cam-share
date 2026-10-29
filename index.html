@@ -1,667 +1,116 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#f4f6fb" />
-    <title>CamShare — Screen Recorder</title>
-    <style>
-      :root {
-        color-scheme: light;
-        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: #f4f6fb;
-        color: #17233d;
-        font-synthesis: none;
-        text-rendering: optimizeLegibility;
-        -webkit-font-smoothing: antialiased;
-        --muted: #77829a;
-        --line: rgba(31, 47, 79, 0.12);
-        --panel: #ffffff;
-        --accent: #4263eb;
-      }
-
-      * {
-        box-sizing: border-box;
-      }
-
-      body {
-        min-width: 320px;
-        min-height: 100vh;
-        margin: 0;
-        background: radial-gradient(ellipse at 50% -25%, rgba(66, 99, 235, 0.12), transparent 56%), #f4f6fb;
-      }
-
-      button {
-        font: inherit;
-      }
-
-      .app-shell {
-        width: min(100% - 48px, 1040px);
-        margin: 0 auto;
-        padding: 30px 0 48px;
-      }
-
-      .topbar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding-bottom: 28px;
-        border-bottom: 1px solid var(--line);
-      }
-
-      .brand {
-        display: inline-flex;
-        align-items: center;
-        gap: 11px;
-        color: #17233d;
-        font-size: 15px;
-        font-weight: 650;
-        letter-spacing: -0.03em;
-      }
-
-      .brand-mark {
-        display: grid;
-        width: 34px;
-        height: 34px;
-        place-items: center;
-        border: 1px solid rgba(66, 99, 235, 0.2);
-        border-radius: 11px;
-        background: rgba(66, 99, 235, 0.09);
-        color: var(--accent);
-      }
-
-      .local-badge,
-      .status {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        color: var(--muted);
-        font-size: 12px;
-        font-weight: 550;
-      }
-
-      .local-badge {
-        padding: 8px 11px;
-        border: 1px solid var(--line);
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.78);
-      }
-
-      .local-badge svg {
-        color: var(--accent);
-      }
-
-      main {
-        width: min(100%, 780px);
-        margin: 0 auto;
-        padding-top: 57px;
-      }
-
-      .intro {
-        margin-bottom: 27px;
-        text-align: center;
-      }
-
-      .eyebrow {
-        margin: 0 0 12px;
-        color: var(--accent);
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.16em;
-        text-transform: uppercase;
-      }
-
-      h1 {
-        margin: 0;
-        font-size: clamp(32px, 5vw, 46px);
-        font-weight: 650;
-        letter-spacing: -0.055em;
-        line-height: 1.08;
-      }
-
-      .intro-copy {
-        margin: 13px auto 0;
-        color: var(--muted);
-        font-size: 15px;
-        line-height: 1.6;
-      }
-
-      .recorder-card {
-        overflow: hidden;
-        padding: 13px;
-        border: 1px solid var(--line);
-        border-radius: 18px;
-        background: linear-gradient(145deg, rgba(255, 255, 255, 0.95), transparent 42%), var(--panel);
-        box-shadow: 0 28px 80px rgba(34, 52, 91, 0.1);
-      }
-
-      .preview-stage {
-        position: relative;
-        display: grid;
-        min-height: 220px;
-        aspect-ratio: 16 / 9;
-        overflow: hidden;
-        place-items: center;
-        border: 1px solid rgba(31, 47, 79, 0.07);
-        border-radius: 11px;
-        background:
-          radial-gradient(ellipse at center, rgba(207, 216, 239, 0.62), transparent 68%),
-          repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(48, 66, 105, 0.035) 40px),
-          repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(48, 66, 105, 0.035) 40px),
-          #edf1f8;
-      }
-
-      .preview-stage::after {
-        position: absolute;
-        z-index: 1;
-        border: 1px solid rgba(48, 66, 105, 0.07);
-        border-radius: 8px;
-        content: "";
-        inset: 12px;
-        pointer-events: none;
-      }
-
-      .preview-stage > video {
-        position: absolute;
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-      }
-
-      .empty-state {
-        z-index: 2;
-        display: grid;
-        justify-items: center;
-        padding: 24px;
-        text-align: center;
-        pointer-events: none;
-      }
-
-      .preview-icon {
-        display: grid;
-        width: 54px;
-        height: 54px;
-        margin-bottom: 15px;
-        place-items: center;
-        border: 1px solid rgba(48, 66, 105, 0.11);
-        border-radius: 16px;
-        background: rgba(255, 255, 255, 0.72);
-        color: #52617d;
-      }
-
-      .empty-state strong {
-        font-size: 14px;
-        font-weight: 600;
-      }
-
-      .empty-state span {
-        margin-top: 6px;
-        color: var(--muted);
-        font-size: 12px;
-      }
-
-      .preview-stage.is-live .empty-state {
-        display: none;
-      }
-
-      .preview-status {
-        position: absolute;
-        z-index: 2;
-        top: 23px;
-        left: 24px;
-        display: inline-flex;
-        align-items: center;
-        gap: 7px;
-        padding: 7px 10px;
-        border: 1px solid rgba(48, 66, 105, 0.12);
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.84);
-        color: #52617d;
-        font-size: 10px;
-        font-weight: 650;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-        backdrop-filter: blur(10px);
-      }
-
-      .status-dot {
-        width: 7px;
-        height: 7px;
-        flex: 0 0 auto;
-        border-radius: 50%;
-        background: #747b89;
-      }
-
-      .status-dot.is-live {
-        background: #fa6268;
-        box-shadow: 0 0 12px rgba(250, 98, 104, 0.65);
-      }
-
-      .controls {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-        padding: 17px 5px 4px;
-      }
-
-      .status {
-        min-height: 44px;
-      }
-
-      .actions {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: flex-end;
-        gap: 9px;
-      }
-
-      .button {
-        display: inline-flex;
-        min-height: 42px;
-        align-items: center;
-        justify-content: center;
-        gap: 9px;
-        padding: 0 15px;
-        border: 1px solid var(--line);
-        border-radius: 9px;
-        background: #ffffff;
-        color: #34415c;
-        cursor: pointer;
-        font-size: 12px;
-        font-weight: 620;
-        transition: background 150ms ease, border-color 150ms ease, transform 150ms ease;
-      }
-
-      .button:hover:not(:disabled) {
-        transform: translateY(-1px);
-        border-color: rgba(31, 47, 79, 0.22);
-        background: #f8f9fd;
-      }
-
-      .button:focus-visible {
-        outline: 2px solid var(--accent);
-        outline-offset: 3px;
-      }
-
-      .button:disabled {
-        cursor: not-allowed;
-        opacity: 0.42;
-      }
-
-      .button-primary {
-        border-color: #4263eb;
-        background: var(--accent);
-        color: #ffffff;
-      }
-
-      .button-primary:hover:not(:disabled) {
-        border-color: #3455dc;
-        background: #3455dc;
-      }
-
-      .button-danger {
-        border-color: rgba(210, 65, 78, 0.22);
-        color: #c83e4d;
-      }
-
-      .button-danger:hover:not(:disabled) {
-        border-color: rgba(210, 65, 78, 0.36);
-        background: rgba(210, 65, 78, 0.06);
-      }
-
-      .details {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        margin-top: 15px;
-        border: 1px solid var(--line);
-        border-radius: 12px;
-        background: rgba(255, 255, 255, 0.72);
-      }
-
-      .detail {
-        padding: 16px 19px;
-      }
-
-      .detail + .detail {
-        border-left: 1px solid var(--line);
-      }
-
-      .detail-label {
-        display: block;
-        margin-bottom: 6px;
-        color: #8993a7;
-        font-size: 10px;
-        font-weight: 650;
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
-      }
-
-      .detail-value {
-        color: #34415c;
-        font-size: 12px;
-        font-weight: 550;
-      }
-
-      #recordingPreview {
-        display: block;
-        width: 100%;
-        max-height: 420px;
-        margin-top: 16px;
-        border: 1px solid var(--line);
-        border-radius: 11px;
-        background: #080a0e;
-      }
-
-      #recordingPreview[hidden],
-      #downloadBtn[hidden] {
-        display: none;
-      }
-
-      footer {
-        margin-top: 26px;
-        color: #8993a7;
-        font-size: 11px;
-        text-align: center;
-      }
-
-      @media (max-width: 600px) {
-        .app-shell {
-          width: min(100% - 32px, 1040px);
-          padding-top: 18px;
-        }
-
-        .topbar {
-          padding-bottom: 19px;
-        }
-
-        main {
-          padding-top: 40px;
-        }
-
-        .intro-copy {
-          max-width: 300px;
-          font-size: 14px;
-        }
-
-        .recorder-card {
-          padding: 9px;
-          border-radius: 14px;
-        }
-
-        .preview-stage {
-          min-height: 190px;
-          aspect-ratio: 4 / 3;
-        }
-
-        .controls {
-          align-items: flex-start;
-          flex-direction: column;
-          gap: 8px;
-          padding: 14px 2px 3px;
-        }
-
-        .actions {
-          width: 100%;
-        }
-
-        .actions .button {
-          flex: 1;
-        }
-
-        .details {
-          grid-template-columns: 1fr;
-        }
-
-        .detail {
-          padding: 12px 15px;
-        }
-
-        .detail + .detail {
-          border-top: 1px solid var(--line);
-          border-left: 0;
-        }
-      }
-
-      @media (prefers-reduced-motion: reduce) {
-        *,
-        *::before,
-        *::after {
-          scroll-behavior: auto !important;
-          transition-duration: 0.01ms !important;
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <div class="app-shell">
-      <header class="topbar">
-        <div class="brand">
-          <span class="brand-mark" aria-hidden="true">
-            <svg width="19" height="19" viewBox="0 0 24 24" fill="none">
-              <rect x="3.5" y="5" width="17" height="13" rx="2.5" stroke="currentColor" stroke-width="1.7" />
-              <path d="m10 9 5 2.5-5 2.5V9Z" fill="currentColor" />
-            </svg>
-          </span>
-          CamShare
-        </div>
-        <span class="local-badge">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M12 3 5 6v5c0 4.7 2.9 8.3 7 10 4.1-1.7 7-5.3 7-10V6l-7-3Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
-            <path d="m9 12 2 2 4-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-          Private &amp; local
-        </span>
-      </header>
-
-      <main>
-        <section class="intro">
-          <p class="eyebrow">Simple screen recording</p>
-          <h1>Capture what matters.</h1>
-          <p class="intro-copy">Choose a screen or window to record. Your video stays right here on your device.</p>
-        </section>
-
-        <section class="recorder-card" aria-label="Screen recorder">
-          <div class="preview-stage" id="previewStage">
-            <video id="screenPreview" autoplay playsinline aria-label="Screen preview"></video>
-            <div class="preview-status" aria-live="polite">
-              <span class="status-dot" id="previewDot"></span>
-              <span id="previewLabel">Preview</span>
-            </div>
-            <div class="empty-state">
-              <span class="preview-icon" aria-hidden="true">
-                <svg width="25" height="25" viewBox="0 0 24 24" fill="none">
-                  <rect x="3" y="4.5" width="18" height="13" rx="2" stroke="currentColor" stroke-width="1.6" />
-                  <path d="M8 21h8m-4-3.5V21m-1-12 5 2.5-5 2.5V9Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
-              </span>
-              <strong>Your screen preview will appear here</strong>
-              <span>Ready when you are</span>
-            </div>
-          </div>
-
-          <div class="controls">
-            <div class="status" id="recordingStatus" role="status" aria-live="polite">
-              <span class="status-dot"></span>
-              <span>Ready to record</span>
-            </div>
-            <div class="actions">
-              <button class="button button-danger" id="stopBtn" type="button" disabled>
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                  <rect x="3.5" y="3.5" width="9" height="9" rx="1.5" />
-                </svg>
-                Stop recording
-              </button>
-              <button class="button button-primary" id="startBtn" type="button">
-                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <circle cx="8" cy="8" r="5.25" stroke="currentColor" stroke-width="1.5" />
-                  <circle cx="8" cy="8" r="2.2" fill="currentColor" />
-                </svg>
-                Start recording
-              </button>
-              <button class="button" hidden id="downloadBtn" type="button">
-                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <path d="M8 2.5v7m0 0 2.5-2.5M8 9.5 5.5 7M3 10.5v2A1.5 1.5 0 0 0 4.5 14h7a1.5 1.5 0 0 0 1.5-1.5v-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
-                Download video
-              </button>
-            </div>
-          </div>
-          <video hidden id="recordingPreview" controls aria-label="Recorded video preview"></video>
-        </section>
-
-        <section class="details" aria-label="Recording details">
-          <div class="detail">
-            <span class="detail-label">Capture</span>
-            <span class="detail-value">Screen, window, or tab</span>
-          </div>
-          <div class="detail">
-            <span class="detail-label">Audio</span>
-            <span class="detail-value">Video only</span>
-          </div>
-          <div class="detail">
-            <span class="detail-label">Privacy</span>
-            <span class="detail-value">Saved only when you download</span>
-          </div>
-        </section>
-        <footer>CamShare records locally in your browser. Nothing is uploaded.</footer>
-      </main>
-    </div>
-    <script>
-      const button = document.getElementById("startBtn");
-      const preview = document.getElementById("screenPreview");
-      const stopButton = document.getElementById("stopBtn");
-      const downloadButton = document.getElementById("downloadBtn");
-      const previewStage = document.getElementById("previewStage");
-      const previewDot = document.getElementById("previewDot");
-      const previewLabel = document.getElementById("previewLabel");
-      const recordingMessage = document.querySelector("#recordingStatus span:last-child");
-
-      let stream;
-      let recorder;
-      let chunks;
-      let state = "idle";
-      let url = null;
-
-      button.addEventListener("click", async () => {
-        try {
-          if (
-            state === "starting" ||
-            state === "recording" ||
-            state === "finalizing"
-          ) {
-            return;
-          }
-
-          state = "starting";
-          button.disabled = true;
-          recordingMessage.textContent = "Requesting screen access…";
-
-          stream = await navigator.mediaDevices.getDisplayMedia({
-            video: true,
-            audio: false,
-          });
-
-          const recording = document.getElementById("recordingPreview");
-          recording.src = null;
-          recording.hidden = true;
-          downloadButton.hidden = true;
-
-          chunks = [];
-          preview.srcObject = stream;
-          previewStage.classList.add("is-live");
-          previewDot.classList.add("is-live");
-          previewLabel.textContent = "Live preview";
-
-          recorder = new MediaRecorder(stream);
-
-          recorder.addEventListener("dataavailable", (event) => {
-            if (event.data.size > 0) {
-              chunks.push(event.data);
-            }
-          });
-
-          recorder.addEventListener("stop", () => {
-            const blob = new Blob(chunks, {
-              type: recorder.mimeType,
-            });
-
-            const oldUrl = url;
-            url = URL.createObjectURL(blob);
-
-            const recording = document.getElementById("recordingPreview");
-
-            recording.srcObject = null;
-            recording.src = url;
-
-            recording.hidden = false;
-            downloadButton.hidden = false;
-
-            if (oldUrl) {
-              URL.revokeObjectURL(oldUrl);
-            }
-
-            state = "completed";
-            stopButton.disabled = true;
-            button.disabled = false;
-            previewStage.classList.remove("is-live");
-            previewDot.classList.remove("is-live");
-            previewLabel.textContent = "Preview";
-            recordingMessage.textContent = "Recording complete";
-            stream.getTracks().forEach((track) => track.stop());
-            preview.srcObject = null;
-          });
-
-          stream.getVideoTracks()[0].addEventListener("ended", () => {
-            if (state === "recording") {
-              state = "finalizing";
-              recorder.stop();
-            }
-          });
-
-          recorder.start();
-          state = "recording";
-          stopButton.disabled = false;
-          recordingMessage.textContent = "Recording in progress";
-        } catch (error) {
-          state = "idle";
-          button.disabled = false;
-          stopButton.disabled = true;
-          recordingMessage.textContent = "Ready to record";
-          previewStage.classList.remove("is-live");
-          previewDot.classList.remove("is-live");
-          previewLabel.textContent = "Preview";
-
-          if (stream && stream.active) {
-            stream.getTracks().forEach((track) => track.stop());
-          }
-
-          preview.srcObject = null;
-          stream = null;
-          if (error.name !== "NotAllowedError") {
-            console.error(error);
-          }
-        }
-      });
-
-      downloadButton.addEventListener("click", () => {
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = "screen-recording.webm";
-        link.click();
-      });
-
-      stopButton.addEventListener("click", () => {
-        if (state !== "recording") {
+<body>
+  <video id="screenPreview" autoplay playsinline></video>
+  <button id="startBtn">Share Screen</button>
+  <button id="stopBtn">Stop Recording</button>
+  <video hidden id="recordingPreview" controls></video>
+  <button hidden id="downloadBtn">Download Recording</button>
+  <script>
+    const button = document.getElementById("startBtn");
+    const preview = document.getElementById("screenPreview");
+    const stopButton = document.getElementById("stopBtn");
+    const downloadButton = document.getElementById("downloadBtn");
+
+    let stream;
+    let recorder;
+    let chunks;
+    let state = "idle";
+    let url = null;
+
+    button.addEventListener("click", async () => {
+      try {
+        if (
+          state === "starting" ||
+          state === "recording" ||
+          state === "finalizing"
+        ) {
           return;
         }
-        if (recorder) {
-          state = "finalizing";
-          stopButton.disabled = true;
-          recordingMessage.textContent = "Finishing recording…";
-          recorder.stop();
+
+        state = "starting";
+
+        stream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: false,
+        });
+
+        const recording = document.getElementById("recordingPreview");
+        recording.src = null;
+        recording.hidden = true;
+        downloadButton.hidden = true;
+
+        chunks = [];
+        preview.srcObject = stream;
+
+        recorder = new MediaRecorder(stream);
+
+        recorder.addEventListener("dataavailable", (event) => {
+          if (event.data.size > 0) {
+            chunks.push(event.data);
+          }
+        });
+
+        recorder.addEventListener("stop", () => {
+          const blob = new Blob(chunks, {
+            type: recorder.mimeType,
+          });
+
+          const oldUrl = url;
+          url = URL.createObjectURL(blob);
+
+          const recording = document.getElementById("recordingPreview");
+
+          recording.srcObject = null;
+          recording.src = url;
+
+          recording.hidden = false;
+          downloadButton.hidden = false;
+
+          if (oldUrl) {
+            URL.revokeObjectURL(oldUrl);
+          }
+
+          state = "completed";
+          stream.getTracks().forEach((track) => track.stop());
+          preview.srcObject = null;
+        });
+
+        stream.getVideoTracks()[0].addEventListener("ended", () => {
+          if (state === "recording") {
+            state = "finalizing";
+            recorder.stop();
+          }
+        });
+
+        recorder.start();
+        state = "recording";
+      } catch (error) {
+        state = "idle";
+
+        if (stream && stream.active) {
+          stream.getTracks().forEach((track) => track.stop());
         }
-      });
-    </script>
-  </body>
-</html>
+
+        preview.srcObject = null;
+        stream = null;
+        console.error(error);
+      }
+    });
+
+    downloadButton.addEventListener("click", () => {
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "screen-recording.webm";
+      link.click();
+    });
+
+    stopButton.addEventListener("click", () => {
+      if (state !== "recording") {
+        return;
+      }
+      if (recorder) {
+        state = "finalizing";
+        recorder.stop();
+      }
+    });
+  </script>
+</body>
