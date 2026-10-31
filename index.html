@@ -5,6 +5,8 @@
     <button id="laptopRoleBtn">Use as Laptop</button>
   </section>
 
+  <canvas id="recordingCanvas" width="1280" height="720" hidden></canvas>
+
   <video hidden id="screenPreview" autoplay playsinline></video>
   <video id="remoteCameraPreview" autoplay playsinline></video>
   <button hidden id="startBtn">Share Screen</button>
@@ -108,11 +110,18 @@
     const stopButton = document.getElementById("stopBtn");
     const downloadButton = document.getElementById("downloadBtn");
 
+    // Canvas Composition
+    const recordingCanvas = document.getElementById("recordingCanvas");
+    const canvasContext = recordingCanvas.getContext("2d");
+
     let stream;
     let recorder;
     let chunks;
     let state = "idle";
     let url = null;
+    let videoFrameCallbackId = null;
+    let isCanvasRendering = false;
+    let lastFrameTime = null;
 
     button.addEventListener("click", async () => {
       try {
@@ -131,6 +140,11 @@
           audio: false,
         });
 
+        const screenTrack = stream.getVideoTracks()[0];
+
+        console.log("Screen track settings:", screenTrack.getSettings());
+        console.log("Screen track readyState:", screenTrack.readyState);
+
         const recording = document.getElementById("recordingPreview");
         recording.src = null;
         recording.hidden = true;
@@ -139,7 +153,41 @@
         chunks = [];
         preview.srcObject = stream;
 
+        await preview.play();
+
+        const canvasStream = recordingCanvas.captureStream(30);
+
+        const canvasTrack = canvasStream.getVideoTracks()[0];
+
+        canvasTrack.addEventListener("ended", () => {
+          console.error("CANVAS TRACK ENDED");
+        });
+
+        canvasTrack.addEventListener("mute", () => {
+          console.warn("CANVAS TRACK MUTED");
+        });
+
+        canvasTrack.addEventListener("unmute", () => {
+          console.log("CANVAS TRACK UNMUTED");
+        });
+
+        recordingCanvas.hidden = false;
+        startCanvasRendering();
+
+        // recorder = new MediaRecorder(canvasStream);
         recorder = new MediaRecorder(stream);
+
+        recorder.addEventListener("stop", () => {
+          console.log("RECORDER STOPPED");
+        });
+
+        recorder.addEventListener("error", (event) => {
+          console.error("RECORDER ERROR:", event.error);
+        });
+
+        recorder.addEventListener("start", () => {
+          console.log("RECORDER STARTED");
+        });
 
         recorder.addEventListener("dataavailable", (event) => {
           if (event.data.size > 0) {
@@ -167,14 +215,23 @@
             URL.revokeObjectURL(oldUrl);
           }
 
-          state = "completed";
+          canvasStream.getTracks().forEach((track) => track.stop());
+
           stream.getTracks().forEach((track) => track.stop());
+
           preview.srcObject = null;
+          state = "completed";
         });
 
-        stream.getVideoTracks()[0].addEventListener("ended", () => {
+        screenTrack.addEventListener("ended", () => {
+          console.log(
+            "Screen track ended. ReadyState:",
+            screenTrack.readyState,
+          );
+
           if (state === "recording") {
             state = "finalizing";
+            stopCanvasRendering();
             recorder.stop();
           }
         });
@@ -208,6 +265,8 @@
       }
       if (recorder) {
         state = "finalizing";
+        stopCanvasRendering();
+        console.trace("WHO CALLED RECORDER.STOP?");
         recorder.stop();
       }
     });
@@ -364,6 +423,119 @@
 
       for (const candidate of candidates) {
         await peerConnection.addIceCandidate(candidate);
+      }
+    }
+
+    // function drawScreenFrame() {
+    //   console.count("Canvas frame rendered");
+
+    //   if (!isCanvasRendering) return;
+
+    //   if (!preview.videoWidth || !preview.videoHeight) {
+    //     videoFrameCallbackId =
+    //       preview.requestVideoFrameCallback(drawScreenFrame);
+    //     return;
+    //   }
+
+    //   canvasContext.drawImage(
+    //     preview,
+    //     0,
+    //     0,
+    //     recordingCanvas.width,
+    //     recordingCanvas.height,
+    //   );
+
+    //   // Draw phone camera
+    //   const cameraWidth = 320;
+    //   const cameraHeight = 180;
+    //   const margin = 24;
+
+    //   if (remoteCameraPreview.readyState >= 2) {
+    //     canvasContext.drawImage(
+    //       remoteCameraPreview,
+    //       recordingCanvas.width - cameraWidth - margin,
+    //       recordingCanvas.height - cameraHeight - margin,
+    //       cameraWidth,
+    //       cameraHeight,
+    //     );
+    //   }
+
+    //   if (isCanvasRendering) {
+    //     videoFrameCallbackId =
+    //       preview.requestVideoFrameCallback(drawScreenFrame);
+    //   }
+    // }
+
+    // function stopCanvasRendering() {
+    //   isCanvasRendering = false;
+
+    //   if (videoFrameCallbackId !== null) {
+    //     preview.cancelVideoFrameCallback(videoFrameCallbackId);
+    //     videoFrameCallbackId = null;
+    //   }
+    // }
+
+    // function startCanvasRendering() {
+    //   if (isCanvasRendering) return;
+
+    //   isCanvasRendering = true;
+
+    //   videoFrameCallbackId = preview.requestVideoFrameCallback(drawScreenFrame);
+    // }
+
+    let canvasRenderInterval = null;
+
+    function drawScreenFrame() {
+      const startTime = performance.now();
+
+      if (!isCanvasRendering) return;
+
+      if (!preview.videoWidth || !preview.videoHeight) return;
+
+      canvasContext.drawImage(
+        preview,
+        0,
+        0,
+        recordingCanvas.width,
+        recordingCanvas.height,
+      );
+
+      const cameraWidth = 320;
+      const cameraHeight = 180;
+      const margin = 24;
+
+      if (remoteCameraPreview.readyState >= 2) {
+        canvasContext.drawImage(
+          remoteCameraPreview,
+          recordingCanvas.width - cameraWidth - margin,
+          recordingCanvas.height - cameraHeight - margin,
+          cameraWidth,
+          cameraHeight,
+        );
+      }
+
+      const renderTime = performance.now() - startTime;
+
+      if (renderTime > 16.67) {
+        console.warn("Slow canvas rendering:", renderTime.toFixed(2), "ms");
+      }
+      console.count("Canvas frame rendered");
+    }
+
+    function startCanvasRendering() {
+      if (isCanvasRendering) return;
+
+      isCanvasRendering = true;
+
+      canvasRenderInterval = setInterval(drawScreenFrame, 1000 / 30);
+    }
+
+    function stopCanvasRendering() {
+      isCanvasRendering = false;
+
+      if (canvasRenderInterval !== null) {
+        clearInterval(canvasRenderInterval);
+        canvasRenderInterval = null;
       }
     }
   </script>
