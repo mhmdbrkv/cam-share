@@ -5,6 +5,8 @@
     <button id="laptopRoleBtn">Use as Laptop</button>
   </section>
 
+  <canvas id="recordingCanvas" width="1280" height="720" hidden></canvas>
+
   <video hidden id="screenPreview" autoplay playsinline></video>
   <video id="remoteCameraPreview" autoplay playsinline></video>
   <button hidden id="startBtn">Share Screen</button>
@@ -14,7 +16,10 @@
   <video hidden id="recordingPreview" controls></video>
   <button hidden id="downloadBtn">Download Recording</button>
 
-  <script>
+  <script type="module">
+    import { startScreenCapture, stopScreenCapture } from "./screen-capture.js";
+    import { createRecorder } from "./recorder.js";
+
     let deviceRole = null;
     let pendingCandidates = [];
 
@@ -108,11 +113,18 @@
     const stopButton = document.getElementById("stopBtn");
     const downloadButton = document.getElementById("downloadBtn");
 
-    let stream;
-    let recorder;
-    let chunks;
+    // Canvas Composition
+    const recordingCanvas = document.getElementById("recordingCanvas");
+    const canvasContext = recordingCanvas.getContext("2d");
+
+    let stream = null;
+    let recorder = null;
     let state = "idle";
     let url = null;
+    let videoFrameCallbackId = null;
+    let isCanvasRendering = false;
+    let lastFrameTime = null;
+    let canvasStream = null;
 
     button.addEventListener("click", async () => {
       try {
@@ -126,70 +138,45 @@
 
         state = "starting";
 
-        stream = await navigator.mediaDevices.getDisplayMedia({
-          video: true,
-          audio: false,
-        });
+        stream = await startScreenCapture();
+        const screenTrack = stream.getVideoTracks()[0];
 
         const recording = document.getElementById("recordingPreview");
-        recording.src = null;
+        recording.pause();
+        recording.removeAttribute("src");
         recording.hidden = true;
         downloadButton.hidden = true;
 
-        chunks = [];
         preview.srcObject = stream;
+        await preview.play();
 
-        recorder = new MediaRecorder(stream);
+        // Keep Canvas rendering available for future composition.
+        // The current recording is the original screen stream.
+        recordingCanvas.hidden = false;
+        startCanvasRendering();
 
-        recorder.addEventListener("dataavailable", (event) => {
-          if (event.data.size > 0) {
-            chunks.push(event.data);
-          }
-        });
+        canvasStream = recordingCanvas.captureStream(30);
 
-        recorder.addEventListener("stop", () => {
-          const blob = new Blob(chunks, {
-            type: recorder.mimeType,
-          });
-
-          const oldUrl = url;
-          url = URL.createObjectURL(blob);
-
-          const recording = document.getElementById("recordingPreview");
-
-          recording.srcObject = null;
-          recording.src = url;
-
-          recording.hidden = false;
-          downloadButton.hidden = false;
-
-          if (oldUrl) {
-            URL.revokeObjectURL(oldUrl);
-          }
-
-          state = "completed";
-          stream.getTracks().forEach((track) => track.stop());
-          preview.srcObject = null;
-        });
-
-        stream.getVideoTracks()[0].addEventListener("ended", () => {
-          if (state === "recording") {
-            state = "finalizing";
-            recorder.stop();
-          }
-        });
-
+        recorder = createRecorder(canvasStream);
         recorder.start();
         state = "recording";
+
+        screenTrack.addEventListener(
+          "ended",
+          () => {
+            console.log("Screen track ended.");
+            finalizeRecording();
+          },
+          { once: true },
+        );
       } catch (error) {
         state = "idle";
 
-        if (stream && stream.active) {
-          stream.getTracks().forEach((track) => track.stop());
-        }
-
-        preview.srcObject = null;
+        stopCanvasRendering();
+        stopScreenCapture(stream);
         stream = null;
+        preview.srcObject = null;
+
         alert("Could not start screen recording: " + error.message);
         console.error(error);
       }
@@ -203,14 +190,58 @@
     });
 
     stopButton.addEventListener("click", () => {
-      if (state !== "recording") {
+      finalizeRecording();
+    });
+
+    async function finalizeRecording() {
+      if (state !== "recording" || !recorder) {
         return;
       }
-      if (recorder) {
-        state = "finalizing";
-        recorder.stop();
+
+      state = "finalizing";
+      stopCanvasRendering();
+
+      try {
+        const blob = await recorder.stop();
+        canvasStream.getTracks().forEach((track) => track.stop());
+        canvasStream = null;
+
+        const oldUrl = url;
+        url = URL.createObjectURL(blob);
+
+        const recording = document.getElementById("recordingPreview");
+        recording.srcObject = null;
+        recording.src = url;
+        recording.hidden = false;
+
+        downloadButton.hidden = false;
+
+        if (oldUrl) {
+          URL.revokeObjectURL(oldUrl);
+        }
+
+        stopScreenCapture(stream);
+        stream = null;
+        preview.srcObject = null;
+
+        recorder = null;
+        state = "completed";
+      } catch (error) {
+        console.error("Failed to finalize recording:", error);
+
+        stopScreenCapture(stream);
+        stream = null;
+        preview.srcObject = null;
+
+        if (canvasStream) {
+          canvasStream.getTracks().forEach((track) => track.stop());
+          canvasStream = null;
+        }
+
+        recorder = null;
+        state = "idle";
       }
-    });
+    }
 
     // ------------------------- Camera Preview -------------------------
     const cameraPreview = document.getElementById("cameraPreview");
@@ -364,6 +395,119 @@
 
       for (const candidate of candidates) {
         await peerConnection.addIceCandidate(candidate);
+      }
+    }
+
+    // function drawScreenFrame() {
+    //   console.count("Canvas frame rendered");
+
+    //   if (!isCanvasRendering) return;
+
+    //   if (!preview.videoWidth || !preview.videoHeight) {
+    //     videoFrameCallbackId =
+    //       preview.requestVideoFrameCallback(drawScreenFrame);
+    //     return;
+    //   }
+
+    //   canvasContext.drawImage(
+    //     preview,
+    //     0,
+    //     0,
+    //     recordingCanvas.width,
+    //     recordingCanvas.height,
+    //   );
+
+    //   // Draw phone camera
+    //   const cameraWidth = 320;
+    //   const cameraHeight = 180;
+    //   const margin = 24;
+
+    //   if (remoteCameraPreview.readyState >= 2) {
+    //     canvasContext.drawImage(
+    //       remoteCameraPreview,
+    //       recordingCanvas.width - cameraWidth - margin,
+    //       recordingCanvas.height - cameraHeight - margin,
+    //       cameraWidth,
+    //       cameraHeight,
+    //     );
+    //   }
+
+    //   if (isCanvasRendering) {
+    //     videoFrameCallbackId =
+    //       preview.requestVideoFrameCallback(drawScreenFrame);
+    //   }
+    // }
+
+    // function stopCanvasRendering() {
+    //   isCanvasRendering = false;
+
+    //   if (videoFrameCallbackId !== null) {
+    //     preview.cancelVideoFrameCallback(videoFrameCallbackId);
+    //     videoFrameCallbackId = null;
+    //   }
+    // }
+
+    // function startCanvasRendering() {
+    //   if (isCanvasRendering) return;
+
+    //   isCanvasRendering = true;
+
+    //   videoFrameCallbackId = preview.requestVideoFrameCallback(drawScreenFrame);
+    // }
+
+    let canvasRenderInterval = null;
+
+    function drawScreenFrame() {
+      const startTime = performance.now();
+
+      if (!isCanvasRendering) return;
+
+      if (!preview.videoWidth || !preview.videoHeight) return;
+
+      canvasContext.drawImage(
+        preview,
+        0,
+        0,
+        recordingCanvas.width,
+        recordingCanvas.height,
+      );
+
+      const cameraWidth = 320;
+      const cameraHeight = 180;
+      const margin = 24;
+
+      if (remoteCameraPreview.readyState >= 2) {
+        canvasContext.drawImage(
+          remoteCameraPreview,
+          recordingCanvas.width - cameraWidth - margin,
+          recordingCanvas.height - cameraHeight - margin,
+          cameraWidth,
+          cameraHeight,
+        );
+      }
+
+      const renderTime = performance.now() - startTime;
+
+      if (renderTime > 16.67) {
+        console.warn("Slow canvas rendering:", renderTime.toFixed(2), "ms");
+      }
+      console.count("Canvas frame rendered");
+    }
+
+    function startCanvasRendering() {
+      if (isCanvasRendering) return;
+
+      isCanvasRendering = true;
+
+      canvasRenderInterval = setInterval(drawScreenFrame, 1000 / 30);
+    }
+
+    function stopCanvasRendering() {
+      isCanvasRendering = false;
+
+      if (canvasRenderInterval !== null) {
+        clearInterval(canvasRenderInterval);
+        canvasRenderInterval = null;
       }
     }
   </script>

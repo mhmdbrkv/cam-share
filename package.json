@@ -1,0 +1,25 @@
+{
+  "name": "camshare",
+  "version": "1.0.0",
+  "description": "CamShare is a small browser-based project for sharing and recording a laptop screen. The project is being built in stages, starting with screen recording and progressing toward connecting a phone camera, combining media, and eventually live streaming.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mhmdbrkv/cam-share.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/mhmdbrkv/cam-share/issues"
+  },
+  "homepage": "https://github.com/mhmdbrkv/cam-share#readme",
+  "devDependencies": {
+    "electron": "^45.2.1"
+  }
+}
