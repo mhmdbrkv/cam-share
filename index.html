@@ -16,7 +16,10 @@
   <video hidden id="recordingPreview" controls></video>
   <button hidden id="downloadBtn">Download Recording</button>
 
-  <script>
+  <script type="module">
+    import { startScreenCapture, stopScreenCapture } from "./screen-capture.js";
+    import { createRecorder } from "./recorder.js";
+
     let deviceRole = null;
     let pendingCandidates = [];
 
@@ -114,14 +117,14 @@
     const recordingCanvas = document.getElementById("recordingCanvas");
     const canvasContext = recordingCanvas.getContext("2d");
 
-    let stream;
-    let recorder;
-    let chunks;
+    let stream = null;
+    let recorder = null;
     let state = "idle";
     let url = null;
     let videoFrameCallbackId = null;
     let isCanvasRendering = false;
     let lastFrameTime = null;
+    let canvasStream = null;
 
     button.addEventListener("click", async () => {
       try {
@@ -135,118 +138,45 @@
 
         state = "starting";
 
-        stream = await navigator.mediaDevices.getDisplayMedia({
-          video: true,
-          audio: false,
-        });
-
+        stream = await startScreenCapture();
         const screenTrack = stream.getVideoTracks()[0];
 
-        console.log("Screen track settings:", screenTrack.getSettings());
-        console.log("Screen track readyState:", screenTrack.readyState);
-
         const recording = document.getElementById("recordingPreview");
-        recording.src = null;
+        recording.pause();
+        recording.removeAttribute("src");
         recording.hidden = true;
         downloadButton.hidden = true;
 
-        chunks = [];
         preview.srcObject = stream;
-
         await preview.play();
 
-        const canvasStream = recordingCanvas.captureStream(30);
-
-        const canvasTrack = canvasStream.getVideoTracks()[0];
-
-        canvasTrack.addEventListener("ended", () => {
-          console.error("CANVAS TRACK ENDED");
-        });
-
-        canvasTrack.addEventListener("mute", () => {
-          console.warn("CANVAS TRACK MUTED");
-        });
-
-        canvasTrack.addEventListener("unmute", () => {
-          console.log("CANVAS TRACK UNMUTED");
-        });
-
+        // Keep Canvas rendering available for future composition.
+        // The current recording is the original screen stream.
         recordingCanvas.hidden = false;
         startCanvasRendering();
 
-        // recorder = new MediaRecorder(canvasStream);
-        recorder = new MediaRecorder(stream);
+        canvasStream = recordingCanvas.captureStream(30);
 
-        recorder.addEventListener("stop", () => {
-          console.log("RECORDER STOPPED");
-        });
-
-        recorder.addEventListener("error", (event) => {
-          console.error("RECORDER ERROR:", event.error);
-        });
-
-        recorder.addEventListener("start", () => {
-          console.log("RECORDER STARTED");
-        });
-
-        recorder.addEventListener("dataavailable", (event) => {
-          if (event.data.size > 0) {
-            chunks.push(event.data);
-          }
-        });
-
-        recorder.addEventListener("stop", () => {
-          const blob = new Blob(chunks, {
-            type: recorder.mimeType,
-          });
-
-          const oldUrl = url;
-          url = URL.createObjectURL(blob);
-
-          const recording = document.getElementById("recordingPreview");
-
-          recording.srcObject = null;
-          recording.src = url;
-
-          recording.hidden = false;
-          downloadButton.hidden = false;
-
-          if (oldUrl) {
-            URL.revokeObjectURL(oldUrl);
-          }
-
-          canvasStream.getTracks().forEach((track) => track.stop());
-
-          stream.getTracks().forEach((track) => track.stop());
-
-          preview.srcObject = null;
-          state = "completed";
-        });
-
-        screenTrack.addEventListener("ended", () => {
-          console.log(
-            "Screen track ended. ReadyState:",
-            screenTrack.readyState,
-          );
-
-          if (state === "recording") {
-            state = "finalizing";
-            stopCanvasRendering();
-            recorder.stop();
-          }
-        });
-
+        recorder = createRecorder(canvasStream);
         recorder.start();
         state = "recording";
+
+        screenTrack.addEventListener(
+          "ended",
+          () => {
+            console.log("Screen track ended.");
+            finalizeRecording();
+          },
+          { once: true },
+        );
       } catch (error) {
         state = "idle";
 
-        if (stream && stream.active) {
-          stream.getTracks().forEach((track) => track.stop());
-        }
-
-        preview.srcObject = null;
+        stopCanvasRendering();
+        stopScreenCapture(stream);
         stream = null;
+        preview.srcObject = null;
+
         alert("Could not start screen recording: " + error.message);
         console.error(error);
       }
@@ -260,16 +190,58 @@
     });
 
     stopButton.addEventListener("click", () => {
-      if (state !== "recording") {
+      finalizeRecording();
+    });
+
+    async function finalizeRecording() {
+      if (state !== "recording" || !recorder) {
         return;
       }
-      if (recorder) {
-        state = "finalizing";
-        stopCanvasRendering();
-        console.trace("WHO CALLED RECORDER.STOP?");
-        recorder.stop();
+
+      state = "finalizing";
+      stopCanvasRendering();
+
+      try {
+        const blob = await recorder.stop();
+        canvasStream.getTracks().forEach((track) => track.stop());
+        canvasStream = null;
+
+        const oldUrl = url;
+        url = URL.createObjectURL(blob);
+
+        const recording = document.getElementById("recordingPreview");
+        recording.srcObject = null;
+        recording.src = url;
+        recording.hidden = false;
+
+        downloadButton.hidden = false;
+
+        if (oldUrl) {
+          URL.revokeObjectURL(oldUrl);
+        }
+
+        stopScreenCapture(stream);
+        stream = null;
+        preview.srcObject = null;
+
+        recorder = null;
+        state = "completed";
+      } catch (error) {
+        console.error("Failed to finalize recording:", error);
+
+        stopScreenCapture(stream);
+        stream = null;
+        preview.srcObject = null;
+
+        if (canvasStream) {
+          canvasStream.getTracks().forEach((track) => track.stop());
+          canvasStream = null;
+        }
+
+        recorder = null;
+        state = "idle";
       }
-    });
+    }
 
     // ------------------------- Camera Preview -------------------------
     const cameraPreview = document.getElementById("cameraPreview");
